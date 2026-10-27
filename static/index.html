@@ -89,10 +89,64 @@
                     </div>
                 </div>
 
+                <!-- Quick Code Input Bar (實體牌局極速錄入) -->
+                <div class="quick-input-bar">
+                    <div class="quick-input-field-wrap">
+                        <span class="quick-input-icon">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                        </span>
+                        <input type="text" id="quickCodeInput" class="quick-code-input" 
+                               placeholder="⚡ 極速代碼加牌：例如 R7-9 B5 B6 7rby J (按 Enter 加到桌面，Shift+Enter 加到手牌)" 
+                               autocomplete="off" spellcheck="false">
+                        <button class="btn btn-sm btn-quick-table" id="btnQuickAddToBoard" title="將輸入的牌加到桌面 (Enter)">
+                            ＋ 加到桌面
+                        </button>
+                        <button class="btn btn-sm btn-quick-hand" id="btnQuickAddToHand" title="將輸入的牌加到手牌 (Shift+Enter)">
+                            ＋ 加到手牌
+                        </button>
+                    </div>
+                    <div class="quick-preview-row" id="quickPreviewRow" style="display: none;">
+                        <span class="quick-preview-label">即時識別：</span>
+                        <div class="quick-preview-chips" id="quickPreviewChips"></div>
+                        <span class="quick-preview-count" id="quickPreviewCount">0 張</span>
+                    </div>
+                </div>
+
                 <!-- Board Canvas Area -->
                 <div class="board-canvas" id="boardCanvas">
                     <!-- View 1: Table Layout (Tiles or Melds) -->
                     <div class="view-panel active" id="viewTable">
+                        <!-- Strategy Switcher (When Hand Has Joker) -->
+                        <div class="strategy-switcher-bar" id="strategySwitcherBar" style="display: none;">
+                            <span class="strategy-bar-label">
+                                <svg class="rk-icon" viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+                                策略方案：
+                            </span>
+                            <div class="strategy-tabs">
+                                <button class="strategy-btn active" id="btnStrategyOptimal" data-strategy="optimal">
+                                    ⭐ 極致出牌 (打出 <b id="statOptimalCount">0</b> 張)
+                                </button>
+                                <button class="strategy-btn" id="btnStrategyKeepJoker" data-strategy="keep_joker">
+                                    🛡️ 保留百搭 (保留手中 Joker，打出 <b id="statKeepJokerCount">0</b> 張)
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Step-by-Step Action Guide (實體擺牌操作指引) -->
+                        <div class="action-guide-panel" id="actionGuidePanel" style="display: none;">
+                            <div class="guide-header">
+                                <div class="guide-title-wrap">
+                                    <span class="guide-badge">實體擺牌指引</span>
+                                    <h4 id="guideSummaryTitle">依照以下步驟操作桌面牌組</h4>
+                                </div>
+                                <div class="guide-header-actions">
+                                    <span class="guide-step-counter" id="guideStepCounter">0 步</span>
+                                    <button class="btn-micro" id="btnToggleGuide">收起</button>
+                                </div>
+                            </div>
+                            <div class="action-steps-container" id="actionStepsContainer"></div>
+                        </div>
+
                         <div class="board-tiles-flow" id="boardTilesContainer"></div>
                     </div>
 

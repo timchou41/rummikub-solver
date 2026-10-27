@@ -19,7 +19,9 @@ document.addEventListener('DOMContentLoaded', () => {
         detectedTiles: [],
         selectedTile: null, // For click-to-move { source, groupIdx, tileIdx, tileCode, origin }
         draggedItem: null,  // Currently dragged tile info
-        turnSnapshot: null  // Snapshot at turn start: { boardGroups, hand }
+        turnSnapshot: null, // Snapshot at turn start: { boardGroups, hand }
+        lastCalculationData: null, // Full data from last calculate
+        currentStrategy: 'optimal' // 'optimal' or 'keep_joker'
     };
 
     // DOM Elements
@@ -100,6 +102,28 @@ document.addEventListener('DOMContentLoaded', () => {
     const winningTilesGrid = document.getElementById('winningTilesGrid');
     const breakthroughList = document.getElementById('breakthroughList');
     const synergyGrid = document.getElementById('synergyGrid');
+
+    // Quick Code Input Elements
+    const quickCodeInput = document.getElementById('quickCodeInput');
+    const btnQuickAddToBoard = document.getElementById('btnQuickAddToBoard');
+    const btnQuickAddToHand = document.getElementById('btnQuickAddToHand');
+    const quickPreviewRow = document.getElementById('quickPreviewRow');
+    const quickPreviewChips = document.getElementById('quickPreviewChips');
+    const quickPreviewCount = document.getElementById('quickPreviewCount');
+
+    // Strategy Switcher Elements
+    const strategySwitcherBar = document.getElementById('strategySwitcherBar');
+    const btnStrategyOptimal = document.getElementById('btnStrategyOptimal');
+    const btnStrategyKeepJoker = document.getElementById('btnStrategyKeepJoker');
+    const statOptimalCount = document.getElementById('statOptimalCount');
+    const statKeepJokerCount = document.getElementById('statKeepJokerCount');
+
+    // Step-by-Step Action Guide Elements
+    const actionGuidePanel = document.getElementById('actionGuidePanel');
+    const guideSummaryTitle = document.getElementById('guideSummaryTitle');
+    const guideStepCounter = document.getElementById('guideStepCounter');
+    const btnToggleGuide = document.getElementById('btnToggleGuide');
+    const actionStepsContainer = document.getElementById('actionStepsContainer');
 
     // Helper: Toast Notifications with 16px monochrome linear icon badges
     function showToast(message, type = 'warning') {
@@ -1447,11 +1471,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const flatBoard = getFlatBoardCodes();
+            const boardGroupsCodes = state.boardGroups.map(g => g.map(t => parseTile(t).code));
             const resp = await fetch('/api/solve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     board: flatBoard,
+                    board_groups: boardGroupsCodes,
                     hand: state.hand,
                     initial_meld: state.initialMeld
                 })
@@ -1463,6 +1489,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            state.lastCalculationData = data;
+            state.currentStrategy = 'optimal';
             renderCalculationResults(data);
         } catch (err) {
             showToast(`網路或伺服器錯誤: ${err.message}`, 'error');
@@ -1475,39 +1503,19 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderCalculationResults(data) {
         boardStatusBar.style.display = 'flex';
 
-        // Update boardGroups with optimal melds
-        if (data.can_play && data.melds && data.melds.length > 0) {
-            state.boardGroups = data.melds.map(m => m.tiles.map(t => ({
-                code: t.tile,
-                origin: t.from_hand ? 'hand' : 'board'
-            })));
-
-            state.hand = [...data.remaining_hand];
-            updateHandUI();
-            updateBoardUI();
-        }
-
-        // Status Feedback Bar
-        boardStatusBar.className = 'board-status-bar';
-        if (data.is_win) {
-            boardStatusBar.classList.add('win');
-            statusIcon.innerHTML = RK_ICONS.trophy;
-            statusTitle.textContent = '全部手牌打出獲勝 (Rummikub)！';
-            statusDesc.textContent = `成功打出 ${data.played_tiles.length} 張手牌，一次清空手牌贏得勝利！`;
-        } else if (data.can_play) {
-            statusIcon.innerHTML = RK_ICONS.statusSuccess;
-            statusTitle.textContent = `手牌可出！已自動在桌面重組打出 ${data.played_tiles.length} 張牌`;
-            statusDesc.textContent = `打出手牌獲得 ${data.points_played} 分。點擊「確認出牌」可鎖定回合。`;
+        // Strategy Switcher Setup
+        if (data.keep_joker_solution && data.keep_joker_solution.available) {
+            strategySwitcherBar.style.display = 'flex';
+            btnStrategyOptimal.classList.add('active');
+            btnStrategyKeepJoker.classList.remove('active');
+            statOptimalCount.textContent = data.played_tiles ? data.played_tiles.length : 0;
+            statKeepJokerCount.textContent = data.keep_joker_solution.played_tiles ? data.keep_joker_solution.played_tiles.length : 0;
         } else {
-            statusIcon.innerHTML = RK_ICONS.statusWarn;
-            statusTitle.textContent = '目前手牌無法出牌，請摸牌 (Draw)';
-            statusDesc.textContent = state.initialMeld 
-                ? '首出破冰限制：手牌目前無法在不借用桌面牌的情況下組出大於等於 30 分的牌組。'
-                : '現有手牌與桌面牌暫無法組合出合法新牌型。請查看「關鍵牌聽牌預測」進牌方向！';
+            strategySwitcherBar.style.display = 'none';
         }
 
-        statPlayedCount.textContent = data.played_tiles ? data.played_tiles.length : 0;
-        statRemainingCount.textContent = data.remaining_hand ? data.remaining_hand.length : state.hand.length;
+        // Apply Optimal Strategy initially
+        applyCalculationSolution(data);
 
         // Populate Key Winning Tiles View
         const analysis = data.analysis;
@@ -1613,6 +1621,240 @@ document.addEventListener('DOMContentLoaded', () => {
                 `;
             }
         }
+    }
+
+    function applyCalculationSolution(sol) {
+        if (!sol) return;
+
+        // Update boardGroups with melds from solution
+        if (sol.can_play && sol.melds && sol.melds.length > 0) {
+            state.boardGroups = sol.melds.map(m => m.tiles.map(t => ({
+                code: t.tile,
+                origin: t.from_hand ? 'hand' : 'board'
+            })));
+
+            state.hand = [...sol.remaining_hand];
+            updateHandUI();
+            updateBoardUI();
+        }
+
+        // Status Feedback Bar
+        boardStatusBar.className = 'board-status-bar';
+        if (sol.is_win) {
+            boardStatusBar.classList.add('win');
+            statusIcon.innerHTML = RK_ICONS.trophy;
+            statusTitle.textContent = '全部手牌打出獲勝 (Rummikub)！';
+            statusDesc.textContent = `成功打出 ${sol.played_tiles.length} 張手牌，一次清空手牌贏得勝利！`;
+        } else if (sol.can_play) {
+            statusIcon.innerHTML = RK_ICONS.statusSuccess;
+            statusTitle.textContent = `手牌可出！已自動在桌面重組打出 ${sol.played_tiles.length} 張牌`;
+            statusDesc.textContent = `打出手牌獲得 ${sol.points_played} 分。點擊「確認出牌」可鎖定回合。`;
+        } else {
+            statusIcon.innerHTML = RK_ICONS.statusWarn;
+            statusTitle.textContent = '目前手牌無法出牌，請摸牌 (Draw)';
+            statusDesc.textContent = state.initialMeld 
+                ? '首出破冰限制：手牌目前無法在不借用桌面牌的情況下組出大於等於 30 分的牌組。'
+                : '現有手牌與桌面牌暫無法組合出合法新牌型。請查看「關鍵牌聽牌預測」進牌方向！';
+        }
+
+        statPlayedCount.textContent = sol.played_tiles ? sol.played_tiles.length : 0;
+        statRemainingCount.textContent = sol.remaining_hand ? sol.remaining_hand.length : state.hand.length;
+
+        // Render Action Steps
+        renderActionSteps(sol.steps, sol.played_tiles);
+    }
+
+    function renderActionSteps(steps, playedTiles) {
+        if (!actionGuidePanel || !actionStepsContainer) return;
+
+        if (!steps || steps.length === 0 || !playedTiles || playedTiles.length === 0) {
+            actionGuidePanel.style.display = 'none';
+            actionStepsContainer.innerHTML = '';
+            return;
+        }
+
+        actionGuidePanel.style.display = 'block';
+        guideStepCounter.textContent = `共 ${steps.length} 步`;
+        guideSummaryTitle.textContent = `本回合打出 ${playedTiles.length} 張手牌，請依序執行以下實體操作：`;
+        actionStepsContainer.innerHTML = '';
+        actionStepsContainer.style.display = 'flex';
+        if (btnToggleGuide) btnToggleGuide.textContent = '收起';
+
+        steps.forEach(step => {
+            const card = document.createElement('div');
+            card.className = 'action-step-card';
+            card.innerHTML = `
+                <div class="step-number-badge">${step.step_num}</div>
+                <div class="step-card-content">
+                    <div class="step-card-title">${step.title}</div>
+                    <div class="step-card-detail">${step.detail}</div>
+                </div>
+            `;
+            actionStepsContainer.appendChild(card);
+        });
+    }
+
+    if (btnToggleGuide) {
+        btnToggleGuide.addEventListener('click', () => {
+            if (actionStepsContainer.style.display === 'none') {
+                actionStepsContainer.style.display = 'flex';
+                btnToggleGuide.textContent = '收起';
+            } else {
+                actionStepsContainer.style.display = 'none';
+                btnToggleGuide.textContent = '展開';
+            }
+        });
+    }
+
+    if (btnStrategyOptimal) {
+        btnStrategyOptimal.addEventListener('click', () => {
+            if (!state.lastCalculationData) return;
+            state.currentStrategy = 'optimal';
+            btnStrategyOptimal.classList.add('active');
+            btnStrategyKeepJoker.classList.remove('active');
+            applyCalculationSolution(state.lastCalculationData);
+            showToast('已切換為【極致出牌】方案！', 'info');
+        });
+    }
+
+    if (btnStrategyKeepJoker) {
+        btnStrategyKeepJoker.addEventListener('click', () => {
+            if (!state.lastCalculationData || !state.lastCalculationData.keep_joker_solution) return;
+            state.currentStrategy = 'keep_joker';
+            btnStrategyOptimal.classList.remove('active');
+            btnStrategyKeepJoker.classList.add('active');
+            applyCalculationSolution(state.lastCalculationData.keep_joker_solution);
+            showToast('已切換為【保留百搭】方案！', 'info');
+        });
+    }
+
+    // ================= Quick Code Input (極速代碼加牌) =================
+    function parseQuickTileInput(str) {
+        if (!str || !str.trim()) return [];
+        const tokens = str.trim().split(/[\s,，+]+/);
+        const result = [];
+
+        tokens.forEach(tok => {
+            tok = tok.trim();
+            if (!tok) return;
+
+            // 1. Joker: j, joker
+            if (/^j(oker)?$/i.test(tok)) {
+                result.push('J');
+                return;
+            }
+
+            // 2. Color Range: e.g. R7-9, b10-13, Y1-3, R1-R3
+            const rangeMatch = tok.match(/^([rbykRBYK])(\d{1,2})-[rbykRBYK]?(\d{1,2})$/i);
+            if (rangeMatch) {
+                const color = rangeMatch[1].toUpperCase();
+                const start = parseInt(rangeMatch[2], 10);
+                const end = parseInt(rangeMatch[3], 10);
+                if (start >= 1 && end <= 13 && start <= end) {
+                    for (let v = start; v <= end; v++) {
+                        result.push(color + v);
+                    }
+                    return;
+                }
+            }
+
+            // 3. Multi-color same value: e.g. 7rby, 10rbk, 13rbyk
+            const multiColorMatch = tok.match(/^(\d{1,2})([rbykRBYK]{1,4})$/i);
+            if (multiColorMatch) {
+                const val = parseInt(multiColorMatch[1], 10);
+                const colors = multiColorMatch[2].toUpperCase().split('');
+                if (val >= 1 && val <= 13) {
+                    const uniqueColors = Array.from(new Set(colors));
+                    uniqueColors.forEach(c => result.push(c + val));
+                    return;
+                }
+            }
+
+            // 4. Single tile: e.g. R7, b10, y1, k13
+            const singleMatch = tok.match(/^([rbykRBYK])(\d{1,2})$/i);
+            if (singleMatch) {
+                const color = singleMatch[1].toUpperCase();
+                const val = parseInt(singleMatch[2], 10);
+                if (val >= 1 && val <= 13) {
+                    result.push(color + val);
+                    return;
+                }
+            }
+        });
+        return result;
+    }
+
+    function updateQuickPreview() {
+        if (!quickCodeInput || !quickPreviewRow) return;
+        const val = quickCodeInput.value;
+        const parsed = parseQuickTileInput(val);
+        if (parsed.length === 0) {
+            quickPreviewRow.style.display = 'none';
+            quickPreviewChips.innerHTML = '';
+            quickPreviewCount.textContent = '0 張';
+            return;
+        }
+
+        quickPreviewRow.style.display = 'flex';
+        quickPreviewChips.innerHTML = '';
+        quickPreviewCount.textContent = `${parsed.length} 張`;
+
+        parsed.forEach(code => {
+            const chip = document.createElement('span');
+            const p = parseTile(code);
+            chip.className = `quick-chip ${p.class}`;
+            chip.textContent = tile_display(code);
+            quickPreviewChips.appendChild(chip);
+        });
+    }
+
+    if (quickCodeInput) {
+        quickCodeInput.addEventListener('input', updateQuickPreview);
+        quickCodeInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    executeQuickAddToHand();
+                } else {
+                    executeQuickAddToBoard();
+                }
+            }
+        });
+    }
+
+    if (btnQuickAddToBoard) {
+        btnQuickAddToBoard.addEventListener('click', executeQuickAddToBoard);
+    }
+    if (btnQuickAddToHand) {
+        btnQuickAddToHand.addEventListener('click', executeQuickAddToHand);
+    }
+
+    function executeQuickAddToBoard() {
+        if (!quickCodeInput) return;
+        const tiles = parseQuickTileInput(quickCodeInput.value);
+        if (tiles.length === 0) {
+            showToast('請先輸入有效牌張代碼 (如 R7-9, 7rby, J)！', 'warning');
+            return;
+        }
+        smartMergeTilesIntoBoard(tiles);
+        quickCodeInput.value = '';
+        updateQuickPreview();
+        updateBoardUI();
+        showToast(`已成功將 ${tiles.length} 張牌加入桌面！`, 'success');
+    }
+
+    function executeQuickAddToHand() {
+        if (!quickCodeInput) return;
+        const tiles = parseQuickTileInput(quickCodeInput.value);
+        if (tiles.length === 0) {
+            showToast('請先輸入有效牌張代碼 (如 R7-9, 7rby, J)！', 'warning');
+            return;
+        }
+        tiles.forEach(t => state.hand.push(t));
+        quickCodeInput.value = '';
+        updateQuickPreview();
+        updateHandUI();
+        showToast(`已成功將 ${tiles.length} 張牌加入手牌！`, 'success');
     }
 
     // View Switcher Tabs

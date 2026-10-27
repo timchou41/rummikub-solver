@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 import unittest
 from solver.engine import RummikubEngine
 from solver.key_tiles import analyze_key_tiles
+from solver.action_guide import generate_action_steps
 
 class TestRummikubEngine(unittest.TestCase):
     def setUp(self):
@@ -93,6 +94,32 @@ class TestRummikubEngine(unittest.TestCase):
         self.assertIn(('R6', 'R7', 'R8', 'R9'), meld_tuples)
         self.assertIn(('B7', 'B8', 'B9'), meld_tuples)
         self.assertIn(('Y7', 'Y8', 'Y9'), meld_tuples)
+
+    def test_keep_joker_strategy(self):
+        """Test strategic choice between using Joker vs keeping Joker"""
+        board = ['B1', 'B2', 'B3']
+        hand = ['B4', 'B5', 'J']
+        # Optimal uses Joker to play all 3 tiles
+        res_opt = self.engine.solve(board, hand, keep_joker=False)
+        self.assertTrue(res_opt['is_win'])
+        self.assertIn('J', res_opt['played_tiles'])
+
+        # Keep Joker saves Joker in hand and still plays B4, B5!
+        res_keep = self.engine.solve(board, hand, keep_joker=True)
+        self.assertTrue(res_keep['can_play'])
+        self.assertFalse(res_keep['is_win'])
+        self.assertNotIn('J', res_keep['played_tiles'])
+        self.assertIn('J', res_keep['remaining_hand'])
+        self.assertEqual(sorted(res_keep['played_tiles']), ['B4', 'B5'])
+
+    def test_action_guide_generation(self):
+        """Test physical action guide generation for table append and reorganization"""
+        orig = [['B1', 'B2', 'B3']]
+        sol = self.engine.solve(['B1', 'B2', 'B3'], ['B4'])
+        steps = generate_action_steps(orig, sol['melds'], sol['played_tiles'])
+        self.assertEqual(len(steps), 1)
+        self.assertEqual(steps[0]['type'], 'append')
+        self.assertIn('B4', steps[0]['hand_tiles'])
 
 if __name__ == '__main__':
     unittest.main()

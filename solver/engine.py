@@ -121,7 +121,8 @@ class RummikubEngine:
         return result['is_win'], result if result['is_win'] else None
 
     def solve(self, board: List[str], hand: List[str], initial_meld: bool = False, 
-              force_all_hand: bool = False, min_hand_tiles: int = 1) -> Dict[str, Any]:
+              force_all_hand: bool = False, min_hand_tiles: int = 1,
+              keep_joker: bool = False) -> Dict[str, Any]:
         """
         Solve Rummikub turn using MILP.
         - board: list of tiles already on the table
@@ -129,6 +130,7 @@ class RummikubEngine:
         - initial_meld: if True, requires >= 30 points from hand without touching board
         - force_all_hand: if True, checks if all hand tiles can be played (win check)
         - min_hand_tiles: minimum number of hand tiles required to be played (default 1)
+        - keep_joker: if True, preserves hand Jokers by setting their usage limit to 0
         """
         if initial_meld:
             # During initial meld, board tiles cannot be touched/used
@@ -212,11 +214,15 @@ class RummikubEngine:
         ub[:M] = 2.0  # At most 2 of any identical meld configuration
         for t_idx, t in enumerate(unique_tiles):
             if force_all_hand:
-                lb[M + t_idx] = hand_counter[t]
-                ub[M + t_idx] = hand_counter[t]
+                target = 0.0 if (keep_joker and t == 'J') else float(hand_counter[t])
+                lb[M + t_idx] = target
+                ub[M + t_idx] = target
             else:
                 lb[M + t_idx] = 0.0
-                ub[M + t_idx] = hand_counter[t]
+                if keep_joker and t == 'J':
+                    ub[M + t_idx] = 0.0
+                else:
+                    ub[M + t_idx] = float(hand_counter[t])
 
         bounds = Bounds(lb, ub)
         integrality = np.ones(num_vars)

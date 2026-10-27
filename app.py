@@ -17,6 +17,7 @@ if CURRENT_DIR not in sys.path:
 
 from solver.engine import RummikubEngine, tile_display, tile_value
 from solver.key_tiles import analyze_key_tiles, find_hand_waiting_melds
+from solver.action_guide import generate_action_steps
 from vision.detector import TileDetector
 from vision.gemini_vision import call_gemini_vision
 
@@ -79,6 +80,7 @@ async def handle_solve(request):
     Solve turn calculation endpoint:
     Body: {
         "board": ["R1", "R2", ...],
+        "board_groups": [["R1", "R2", "R3"], ...],
         "hand": ["R4", "R5", ...],
         "initial_meld": false
     }
@@ -86,28 +88,55 @@ async def handle_solve(request):
     try:
         data = await request.json()
         board = data.get('board', [])
+        board_groups = data.get('board_groups', [])
         hand = data.get('hand', [])
         initial_meld = bool(data.get('initial_meld', False))
 
-        logger.info(f"Solve request: Board({len(board)} tiles), Hand({len(hand)} tiles), InitialMeld={initial_meld}")
+        logger.info(f"Solve request: Board({len(board)} tiles, {len(board_groups)} groups), Hand({len(hand)} tiles), InitialMeld={initial_meld}")
 
-        # 1. Run main turn solver
-        solve_result = engine.solve(board, hand, initial_meld=initial_meld)
+        # 1. Run main optimal turn solver
+        optimal_sol = engine.solve(board, hand, initial_meld=initial_meld, keep_joker=False)
+        optimal_steps = generate_action_steps(board_groups, optimal_sol['melds'], optimal_sol['played_tiles'])
 
-        # 2. Run key tiles & waiting melds analysis
+        # 2. Strategic Alternative: Keep Joker in hand (if hand has Joker)
+        has_hand_joker = ('J' in hand)
+        keep_joker_sol = None
+        if has_hand_joker:
+            used_joker_in_optimal = any(t == 'J' for t in optimal_sol.get('played_tiles', []))
+            keep_res = engine.solve(board, hand, initial_meld=initial_meld, keep_joker=True)
+            keep_steps = generate_action_steps(board_groups, keep_res['melds'], keep_res['played_tiles'])
+            keep_joker_sol = {
+                'available': True,
+                'used_joker_in_optimal': used_joker_in_optimal,
+                'can_play': keep_res['can_play'],
+                'is_win': keep_res['is_win'],
+                'played_tiles': keep_res['played_tiles'],
+                'played_tiles_display': [tile_display(t) for t in keep_res['played_tiles']],
+                'remaining_hand': keep_res['remaining_hand'],
+                'remaining_hand_display': [tile_display(t) for t in keep_res['remaining_hand']],
+                'melds': keep_res['melds'],
+                'points_played': keep_res['points_played'],
+                'message': keep_res['message'],
+                'steps': keep_steps
+            }
+
+        # 3. Run key tiles & waiting melds analysis
         key_tiles_result = analyze_key_tiles(engine, board, hand, initial_meld=initial_meld)
 
         response_data = {
             'success': True,
-            'can_play': solve_result['can_play'],
-            'is_win': solve_result['is_win'],
-            'played_tiles': solve_result['played_tiles'],
-            'played_tiles_display': [tile_display(t) for t in solve_result['played_tiles']],
-            'remaining_hand': solve_result['remaining_hand'],
-            'remaining_hand_display': [tile_display(t) for t in solve_result['remaining_hand']],
-            'melds': solve_result['melds'],
-            'points_played': solve_result['points_played'],
-            'message': solve_result['message'],
+            'can_play': optimal_sol['can_play'],
+            'is_win': optimal_sol['is_win'],
+            'played_tiles': optimal_sol['played_tiles'],
+            'played_tiles_display': [tile_display(t) for t in optimal_sol['played_tiles']],
+            'remaining_hand': optimal_sol['remaining_hand'],
+            'remaining_hand_display': [tile_display(t) for t in optimal_sol['remaining_hand']],
+            'melds': optimal_sol['melds'],
+            'points_played': optimal_sol['points_played'],
+            'message': optimal_sol['message'],
+            'steps': optimal_steps,
+            'has_hand_joker': has_hand_joker,
+            'keep_joker_solution': keep_joker_sol,
             'analysis': key_tiles_result
         }
 
