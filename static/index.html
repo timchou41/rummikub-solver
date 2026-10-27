@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>拉密神助手 - Rummikub AI 計算與牌面辨識系統</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Outfit:wght@400;600;800;900&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-layout">
+        <!-- Toast Notification Container -->
+        <div class="toast-container" id="toastContainer"></div>
+
+        <!-- Compact Top Navigation -->
+        <header class="app-header-compact">
+            <div class="brand">
+                <span class="logo-icon">
+                    <svg class="rk-icon rk-icon-lg" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3"></rect><path d="M12 7v10M8 12h8"></path></svg>
+                </span>
+                <span class="brand-title">拉密神助手 <span>Rummikub AI</span></span>
+            </div>
+            <div class="header-tools">
+                <label class="toggle-control" title="拉密規則：首次出牌需手牌自成牌組且總分大於等於30分，不能動用桌面牌">
+                    <input type="checkbox" id="initialMeldToggle">
+                    <span class="toggle-slider"></span>
+                    <span class="toggle-label">破冰模式 (首出 &ge; 30分)</span>
+                </label>
+                <button class="btn-tool" id="presetBtn">
+                    <svg class="rk-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="8" cy="8" r="1.5" fill="currentColor"></circle><circle cx="16" cy="16" r="1.5" fill="currentColor"></circle><circle cx="12" cy="12" r="1.5" fill="currentColor"></circle></svg>
+                    經典牌局範例
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Workspace (Desktop Layout matching sketch) -->
+        <main class="game-viewport">
+            <!-- 1. 桌面牌 (Upper Board Area - As Sketched) -->
+            <section class="board-area">
+                <div class="board-header">
+                    <div class="board-title-group">
+                        <span class="board-main-tag">桌面牌</span>
+                        <span class="badge" id="boardCountBadge">0 張</span>
+                    </div>
+
+                    <!-- View Switcher Tabs -->
+                    <div class="board-tabs" id="boardViewTabs">
+                        <button class="board-tab-btn active" data-view="table">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="2"></rect><path d="M7 16v4M17 16v4M3 10h18"></path></svg>
+                            桌面牌佈局
+                        </button>
+                        <button class="board-tab-btn" data-view="key-tiles">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.5" fill="currentColor"></circle></svg>
+                            關鍵牌聽牌預測 <span class="tab-badge" id="keyTileBadge" style="display:none;">0</span>
+                        </button>
+                        <button class="board-tab-btn" data-view="synergy">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><path d="M4 14v4a2 2 0 0 0 2 2h4v-2a2 2 0 1 1 4 0v2h4a2 2 0 0 0 2-2v-4h-2a2 2 0 1 1 0-4h2V6a2 2 0 0 0-2-2h-4v2a2 2 0 1 1-4 0V4H6a2 2 0 0 0-2 2v4h2a2 2 0 1 1 0 4H4z"></path></svg>
+                            手牌搭子分析
+                        </button>
+                    </div>
+
+                    <!-- Board Actions: 拍照辨識, 加牌, 自動理牌, 重置, 確認出牌, 清空 -->
+                    <div class="board-actions">
+                        <button class="btn btn-camera" id="btnUploadImage" title="拍攝或上傳照片辨識桌面牌">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                            圖片辨識
+                        </button>
+                        <button class="btn btn-outline" id="btnAddBoardTile" title="手動批量加入桌面牌">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                            加桌面牌
+                        </button>
+                        <button class="btn btn-outline" id="btnAutoMeld" title="將桌面上零散的牌自動按拉密規則排列成組">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z"></path></svg>
+                            自動理牌
+                        </button>
+                        <button class="btn btn-reset" id="btnResetBoard" title="還原桌面到回合開始時的原本牌型">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                            重置本回合
+                        </button>
+                        <button class="btn btn-confirm" id="btnConfirmTurn" title="檢查桌面牌組是否全數合法並結束本回合">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                            確認出牌
+                        </button>
+                        <button class="btn btn-ghost" id="btnClearBoard" title="清空全部桌面牌">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Board Canvas Area -->
+                <div class="board-canvas" id="boardCanvas">
+                    <!-- View 1: Table Layout (Tiles or Melds) -->
+                    <div class="view-panel active" id="viewTable">
+                        <div class="board-tiles-flow" id="boardTilesContainer"></div>
+                    </div>
+
+                    <!-- View 2: Key Winning Tiles (還差哪些關鍵牌可以贏) -->
+                    <div class="view-panel" id="viewKeyTiles">
+                        <div class="key-tiles-panel">
+                            <!-- Direct Win Section -->
+                            <div class="key-card-block">
+                                <div class="key-card-header">
+                                    <span class="block-icon">
+                                        <svg class="rk-icon rk-icon-lg" viewBox="0 0 24 24"><path d="M6 9H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h2"></path><path d="M18 9h2a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-2"></path><path d="M4 3h16v6a8 8 0 0 1-16 0V3z"></path><path d="M12 17v4M8 21h8"></path></svg>
+                                    </span>
+                                    <div>
+                                        <h4>胡牌關鍵牌 (一進聽 · 摸到直接獲勝)</h4>
+                                        <p>只要摸進以下任何一張牌，即可在該回合將全部手牌清空獲勝 (Rummikub)！</p>
+                                    </div>
+                                </div>
+                                <div class="key-tiles-grid" id="winningTilesGrid">
+                                    <p class="empty-hint">尚未進行計算，請點擊下方「計算」按鈕進行聽牌分析。</p>
+                                </div>
+                            </div>
+
+                            <!-- Breakthrough Draw Tiles -->
+                            <div class="key-card-block">
+                                <div class="key-card-header">
+                                    <span class="block-icon">
+                                        <svg class="rk-icon rk-icon-lg" viewBox="0 0 24 24"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"></path><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"></path><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"></path><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"></path></svg>
+                                    </span>
+                                    <div>
+                                        <h4>出牌突破關鍵牌 (摸到即可打出最多手牌)</h4>
+                                        <p>如果手牌無法一進聽，摸進這些牌能為您解鎖打出原本卡住的手牌！</p>
+                                    </div>
+                                </div>
+                                <div class="breakthrough-list" id="breakthroughList">
+                                    <p class="empty-hint">尚未進行計算，請點擊下方「計算」按鈕。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- View 3: Synergy / Incomplete Melds in Hand -->
+                    <div class="view-panel" id="viewSynergy">
+                        <div class="synergy-panel">
+                            <div class="synergy-intro">
+                                <h4>
+                                    <svg class="rk-icon" viewBox="0 0 24 24"><path d="M4 14v4a2 2 0 0 0 2 2h4v-2a2 2 0 1 1 4 0v2h4a2 2 0 0 0 2-2v-4h-2a2 2 0 1 1 0-4h2V6a2 2 0 0 0-2-2h-4v2a2 2 0 1 1-4 0V4H6a2 2 0 0 0-2 2v4h2a2 2 0 1 1 0 4H4z"></path></svg>
+                                    手牌搭子與聽牌組合
+                                </h4>
+                                <p>分析手牌中的雙向順組搭子、中洞 (嵌張) 搭子與群組對子，掌握進牌方向：</p>
+                            </div>
+                            <div class="synergy-grid" id="synergyGrid">
+                                <p class="empty-hint">請先加入手牌後點擊「計算」檢視搭子。</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Status Feedback Bar (Bottom of Board) -->
+                <div class="board-status-bar" id="boardStatusBar" style="display: none;">
+                    <div class="status-left">
+                        <span class="status-icon" id="statusIcon">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><polyline points="16 9 10 15 7 12"></polyline></svg>
+                        </span>
+                        <div class="status-text-group">
+                            <h4 id="statusTitle">手牌可出牌！</h4>
+                            <p id="statusDesc">打出手牌 2 張，共計 15 分</p>
+                        </div>
+                    </div>
+                    <div class="status-stats">
+                        <span class="stat-pill">可出手牌: <b id="statPlayedCount">0</b> 張</span>
+                        <span class="stat-pill">剩餘手牌: <b id="statRemainingCount">0</b> 張</span>
+                        <button class="btn-view-key" id="btnQuickViewKey">
+                            <svg class="rk-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="5"></circle><circle cx="12" cy="12" r="1.5" fill="currentColor"></circle></svg>
+                            查看胡牌關鍵牌
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 2. Bottom Row: [ 手牌 (Red) ] [ 加牌 (Red) ] [ 垃圾桶 (Gray/Red) ] [ 計算 (Yellow) ] -->
+            <footer class="bottom-dock">
+                <!-- 手牌區 (Red Border Box) -->
+                <div class="dock-hand-section">
+                    <div class="dock-section-header">
+                        <div class="dock-header-left">
+                            <span class="dock-label-hand">手牌</span>
+                            <span class="badge" id="handCountBadge">0 張</span>
+                            <span class="badge badge-accent" id="handPointsBadge">0 分</span>
+                        </div>
+                        <div class="hand-meta">
+                            <button class="btn-micro" id="btnRecallHandTiles" title="將桌面上本回合放出的手牌一次全數收回">
+                                <svg class="rk-icon" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                                撤回出牌
+                            </button>
+                            <button class="btn-micro" id="btnSortHandColor" title="按顏色排序">
+                                <svg class="rk-icon" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.563-2.512 5.563-5.563C22 6.5 17.5 2 12 2z"></path></svg>
+                                顏色
+                            </button>
+                            <button class="btn-micro" id="btnSortHandValue" title="按數字大小排序">
+                                <svg class="rk-icon" viewBox="0 0 24 24"><line x1="4" y1="9" x2="20" y2="9"></line><line x1="4" y1="15" x2="20" y2="15"></line><line x1="10" y1="3" x2="8" y2="21"></line><line x1="16" y1="3" x2="14" y2="21"></line></svg>
+                                數字
+                            </button>
+                            <button class="btn-micro btn-micro-danger" id="btnClearHand" title="清空手牌">
+                                <svg class="rk-icon" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="dock-hand-rack" id="handTilesContainer">
+                        <div class="rack-empty-state" id="handEmptyState">
+                            <p>手牌區 (目前無牌)。請點擊右方 <strong>「加牌」</strong> 加入手上的拉密牌！</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 加牌 (Red Border Button) -->
+                <div class="dock-add-section">
+                    <button class="btn-dock-add" id="btnAddHandTile" title="點擊開啟選牌盤加入手牌">
+                        <span class="add-icon">
+                            <svg class="rk-icon rk-icon-lg" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        </span>
+                        <span class="add-text">加牌</span>
+                    </button>
+                </div>
+
+                <!-- 垃圾桶 (Trash Can Dropzone for dragging wrong tiles) -->
+                <div class="dock-trash-section" id="dockTrashCan" title="將手牌或桌面上加錯的牌拖曳至此處刪除">
+                    <span class="trash-icon">
+                        <svg class="rk-icon rk-icon-lg" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                    </span>
+                    <span class="trash-text">垃圾桶</span>
+                    <span class="trash-hint">拖牌至此刪除</span>
+                </div>
+
+                <!-- 計算 (Yellow Border / Glow Button) -->
+                <div class="dock-calc-section">
+                    <button class="btn-dock-calc" id="btnCalculate" title="開始計算出牌與聽牌 (快捷鍵: 空白鍵 Space)">
+                        <span class="calc-icon">
+                            <svg class="rk-icon rk-icon-lg" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                        </span>
+                        <span class="calc-text">計算</span>
+                        <span class="calc-hint">Space</span>
+                    </button>
+                </div>
+            </footer>
+        </main>
+
+        <!-- Quick Tile Selector Modal (with Staging Box & Deck Quota Display) -->
+        <div class="modal-overlay" id="tileSelectorModal" style="display: none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <div class="selector-title-group">
+                        <h3 id="selectorModalTitle">選擇要加入的牌</h3>
+                        <span class="quota-info-tag">遵循拉密牌庫配額 (每種數字牌各 2 張，百搭牌全副僅 2 張)</span>
+                    </div>
+                    <button class="modal-close" id="btnCloseSelector">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Staging Box: Shows Selected Tiles Before Confirming -->
+                    <div class="staging-box" id="paletteStagingBox">
+                        <div class="staging-header">
+                            <span class="staging-title">
+                                <svg class="rk-icon" viewBox="0 0 24 24"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"></path><path d="m3.3 7 8.7 5 8.7-5M12 22V12"></path></svg>
+                                本次已選牌張 (<strong id="stagingCountText">0</strong> 張)：
+                            </span>
+                            <div class="staging-actions">
+                                <span class="staging-tip">點擊已選牌可取消選取</span>
+                                <button class="btn-micro btn-micro-danger" id="btnClearStaging">清空</button>
+                            </div>
+                        </div>
+                        <div class="staging-tiles" id="stagingTilesContainer">
+                            <span class="staging-empty-hint">點選下方牌張加入選取清單...</span>
+                        </div>
+                    </div>
+
+                    <div class="target-target-pill">
+                        加入目標：<strong id="selectorTargetLabel">我的手牌</strong>
+                        <span class="pill-tip">(牌張右上角為整副牌剩餘可用配額，用完自動鎖定)</span>
+                    </div>
+
+                    <!-- Tile Palette -->
+                    <div class="tile-palette">
+                        <!-- Red Row -->
+                        <div class="palette-row" data-color="R">
+                            <span class="row-label red">紅色 (R)</span>
+                            <div class="palette-tiles" id="paletteRowR"></div>
+                        </div>
+                        <!-- Blue Row -->
+                        <div class="palette-row" data-color="B">
+                            <span class="row-label blue">藍色 (B)</span>
+                            <div class="palette-tiles" id="paletteRowB"></div>
+                        </div>
+                        <!-- Yellow Row -->
+                        <div class="palette-row" data-color="Y">
+                            <span class="row-label yellow">黃色 (Y)</span>
+                            <div class="palette-tiles" id="paletteRowY"></div>
+                        </div>
+                        <!-- Black Row -->
+                        <div class="palette-row" data-color="K">
+                            <span class="row-label black">黑色 (K)</span>
+                            <div class="palette-tiles" id="paletteRowK"></div>
+                        </div>
+                        <!-- Joker Row -->
+                        <div class="palette-row" data-color="J">
+                            <span class="row-label joker">百搭牌 (限2)</span>
+                            <div class="palette-tiles" id="paletteRowJ"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="btnCancelSelector">取消</button>
+                    <button class="btn btn-primary" id="btnDoneSelector">
+                        <svg class="rk-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        確認加入
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Image Recognition Modal -->
+        <div class="modal-overlay" id="imageModal" style="display: none;">
+            <div class="modal-card modal-lg">
+                <div class="modal-header">
+                    <div class="modal-title-with-badge">
+                        <h3>
+                            <svg class="rk-icon" viewBox="0 0 24 24"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>
+                            桌面牌影像辨識
+                        </h3>
+                        <span class="badge-pill">支援拖曳、剪貼簿貼上 (Ctrl+V)、拍照</span>
+                    </div>
+                    <button class="modal-close" id="btnCloseImageModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Method Selection -->
+                    <div class="vision-method-selector">
+                        <label class="radio-option active">
+                            <input type="radio" name="visionMethod" value="opencv" checked>
+                            <div class="radio-content">
+                                <strong>
+                                    <svg class="rk-icon" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+                                    本機 OpenCV 影像辨識
+                                </strong>
+                                <span>100% 離線秒級辨識，自動框選牌面顏色與數字</span>
+                            </div>
+                        </label>
+                        <label class="radio-option">
+                            <input type="radio" name="visionMethod" value="gemini">
+                            <div class="radio-content">
+                                <strong>
+                                    <svg class="rk-icon" viewBox="0 0 24 24"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3L12 3z"></path></svg>
+                                    Gemini AI 智能辨識
+                                </strong>
+                                <span>強大零樣本視覺模型，支援複雜角度、斜拍與陰影</span>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div class="gemini-key-field" id="geminiKeyField" style="display: none;">
+                        <label for="geminiApiKeyInput">Gemini API Key (可選填，若有環境變數可留空)：</label>
+                        <input type="password" id="geminiApiKeyInput" placeholder="AIzaSy...">
+                    </div>
+
+                    <!-- Dropzone -->
+                    <div class="dropzone" id="imageDropzone">
+                        <input type="file" id="fileInput" accept="image/*" style="display: none;">
+                        <div class="dropzone-content" id="dropzonePrompt">
+                            <div class="drop-icon">
+                                <svg class="rk-icon rk-icon-xl" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            </div>
+                            <h4>點選上傳、拖放照片至此，或直接 Ctrl+V 貼上截圖</h4>
+                            <p>支援 JPG、PNG、WebP。建議拍攝清晰平放的桌面牌照片</p>
+                        </div>
+                        <div class="image-preview-wrapper" id="previewWrapper" style="display: none;">
+                            <img id="imagePreview" alt="桌面照片預覽">
+                        </div>
+                    </div>
+
+                    <!-- Spinner -->
+                    <div class="vision-loading" id="visionLoading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p id="visionLoadingText">AI 正在辨識桌面牌與顏色，請稍候...</p>
+                    </div>
+
+                    <!-- Review Panel -->
+                    <div class="recognition-review" id="recognitionReview" style="display: none;">
+                        <div class="review-header">
+                            <h4>
+                                <svg class="rk-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                                辨識結果即時校對面板 (<span id="detectedCountText">0</span> 張牌)：
+                            </h4>
+                            <p class="review-hint">點選牌張可直接刪除，點擊「補牌」可快速手動補齊漏檢牌！</p>
+                        </div>
+                        <div class="detected-tiles-grid" id="detectedTilesGrid"></div>
+                        <div class="review-actions">
+                            <button class="btn btn-outline-sm" id="btnAddMissedTile">
+                                <svg class="rk-icon" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                                補加漏辨識的牌
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" id="btnCancelImage">取消</button>
+                    <button class="btn btn-primary" id="btnApplyDetected" disabled>
+                        <svg class="rk-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        確認套用到桌面牌區
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Preset Scenarios Modal -->
+        <div class="modal-overlay" id="presetModal" style="display: none;">
+            <div class="modal-card">
+                <div class="modal-header">
+                    <h3>
+                        <svg class="rk-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"></rect><circle cx="8" cy="8" r="1.5" fill="currentColor"></circle><circle cx="16" cy="16" r="1.5" fill="currentColor"></circle><circle cx="12" cy="12" r="1.5" fill="currentColor"></circle></svg>
+                        載入經典牌局範例
+                    </h3>
+                    <button class="modal-close" id="btnClosePreset">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="presets-list" id="presetsList"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/tiles.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
